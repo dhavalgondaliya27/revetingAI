@@ -71,6 +71,12 @@ def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName:
         padding: 32px;
         background-color: #fff;
       }}
+      .border {{
+        width: 450px;
+        height: 0.5px;
+        background: #0000003d;
+        margin: 0 0 23px;
+      }}
       .emailsection .head {{
         display: flex;
         padding: 40px 32px 0px 32px;
@@ -167,7 +173,7 @@ def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName:
         font-style: normal;
         font-weight: 400;
         line-height: 20px; /* 142.857% */
-        margin: 0;
+        margin: 0 0 23px 0; 
       }}
       .copyright p {{
         font-family: Inter;
@@ -202,6 +208,7 @@ def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName:
                 <div class="firstlink">
                     <a href="http://localhost:8000/register?team_token={teamToken}" class="linkbtn">Click to Access {firstName}'s Document</a>
                 </div>
+                <div class="border"></div>
                 <div class="secondlink">
                     <a href="#" class="link">Click this URL if the above button does not work:
                     <span>httpss://rivetingai.com/efefefewfeff</span></a>
@@ -210,6 +217,7 @@ def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName:
                     <p>Best Regards, <span>RivetingAI</span></p>
                 </div>
                 <h3 class="reply">This is a system generated message. Do not reply.</h3>
+                <div class="border"></div>
                 <div class="copyright">
                     <p>
                         Copyright © 2024 Riveting Technology, Inc.
