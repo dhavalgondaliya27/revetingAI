@@ -4,7 +4,6 @@ from fastapi.responses import HTMLResponse
 from httpx import HTTPError
 from sqlalchemy.orm import Session as DBSession
 from passlib.context import CryptContext
-from jose import JWTError, jwt
 from datetime import datetime, timedelta
 import os
 import boto3
@@ -42,6 +41,7 @@ from database import engine, SessionLocal
 from models import Base, Document, SharedWith, User, Comment
 import schemas
 from starlette.middleware.sessions import SessionMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 import requests
 
 
@@ -49,7 +49,26 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
+origins = [
+    "*",
+    "http://192.168.50.245",
+    "http://192.168.50.245:8000",
+    "http://127.0.0.1",
+    "http://localhost",
+    "https://rivetingai.onrender.com/",
+    "http://localhost:3000"
+]
+
+
 app.add_middleware(SessionMiddleware, secret_key=os.getenv('SESSION_SECRET_KEY'))
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 def get_db():
     db = SessionLocal()
@@ -64,7 +83,7 @@ async def root():
 
 @app.post("/register")
 def register_user(
-    user: schemas.UserCreate, team_token: str = None, db: DBSession = Depends(get_db)
+        response: Response,user: schemas.UserCreate, team_token: str = None, db: DBSession = Depends(get_db)
 ):
     try:
         password = pwd_context.hash(user.password)
@@ -73,6 +92,7 @@ def register_user(
             raise HTTPException(
                 status_code=400, detail="This email is already registered."
             )
+
         else:
             db_user = User(
                 first_name=user.first_name,
@@ -81,6 +101,13 @@ def register_user(
                 password=password,
             )
             db.add(db_user)
+            access_token_expires = timedelta(
+            minutes=int(config("ACCESS_TOKEN_EXPIRE_MINUTES"))
+            )
+            access_token = create_access_token(
+            data={"sub": db_user.email}, expires_delta=access_token_expires
+            )
+            db_user.security_token = access_token
         db.commit()
         if team_token:
             team = team_by_team_token(db, team_token=team_token)
@@ -92,6 +119,8 @@ def register_user(
             print(team_user)
             team_user.is_accept = True
         db.commit()
+        
+        response.set_cookie(key="token", value=access_token)
         return {"message": "User created successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -125,6 +154,7 @@ def login_user(
             team_user.is_accept = True
         db.commit()
         response.set_cookie(key="token", value=access_token)
+    
         print("-----------coockie token--------", request.cookies.get("token"))
         return {"access_token": access_token, "token_type": "bearer"}
     except Exception as e:
@@ -156,17 +186,21 @@ def create_team_api(
         print("start")
         # Create the team
         team_db = create_team(db, team_name=team)
+        
         # Get the user who is creating the team
         token = request.cookies.get("token")
         user_owner = get_user_by_token(db, token=token)
+        
         # Add the user who created the team as the team owner
         add_owner_to_team(db, team_id=team_db.id, user_id=user_owner.id)
+        
         # Upload the document if a file is provided
         if file:
             # Upload file to S3 bucket
             s3_client.upload_fileobj(file.file, config("AWS_BUCKET_NAME"), file.filename)
             # Generate public URL of the uploaded file
             file_url = f"https://{AWS_BUCKET_NAME}.s3.amazonaws.com/{file.filename}"
+            
             # Create document record in the database with the team ID
             document_record = Document(
                 file=file_url,
@@ -182,17 +216,20 @@ def create_team_api(
                 user = get_user_by_email(db, email=i)
                 if user:
                     add_document_to_user(db, doc_id=doc_id,user_id=user.id )
+            
             add_document_to_owner(db, doc_id=doc_id,user_id=user_owner.id )
+            
+        
         # Send invitation emails to team members
         for email in user_email:
             join_team_mail.send_email(email, team_db.team_token,team_db.team_name,user_owner.first_name)
             user = get_user_by_email(db, email=email)
             if user:
                 add_user_to_team(db, team_id=team_db.id, user_id=user.id)
+        
         return {"message": f"Team {team_db.team_name} created successfully "}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
 
 @app.post("/upload/{team_id}")
 async def upload_file(
@@ -268,6 +305,7 @@ async def upload_file(
                     #     print(f"Document shared with user '{item}'")
                 team_name = item
                 team = team_by_team_name(db, team_name=team_name)
+                print(team)
                 if team:
                     team_users = get_users_by_team(db, team_id=team.id)
                     print("Team Found")
@@ -289,6 +327,32 @@ async def upload_file(
         return {"message": "Document created and shared successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))   
+
+@app.post("/invite/{team_id}")
+async def invite_team_members(request:Request,team_id:int, user_email: List[str] = Form(...), db: DBSession = Depends(get_db)):
+    try:
+        team_id = team_id
+        emails = user_email
+        team_db = get_team_by_id(db, team_id=team_id)
+
+        token = request.cookies.get("token")
+        user_owner = get_user_by_token(db, token=token)
+        print(user_owner.first_name)    
+        for email in emails:
+            if re.match(r"[^@]+@[^@]+\.[^@]+", email):
+                user = get_user_by_email(db, email=email)
+                if user:
+                    add_user_to_team(db, team_id=team_id, user_id=user.id)
+                    # Send invitation email to the user
+                    join_team_mail.send_email(email, team_db.team_token,team_db.team_name,user_owner.first_name)
+                    print(f"Invitation sent to {email}")
+                else:
+                    print(f"User with email '{email}' not found.")
+            else:
+                print(f"Invalid email format: {email}")
+        return {"message": "Invitations sent successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/document/delete/{document_id}")
 async def delete_document(
@@ -332,6 +396,7 @@ async def approve_shared_with(
         document = get_document_by_id(db, document_id=document_id)
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
+        
         token = request.cookies.get("token")
         user = get_user_by_token(db, token=token)
         shared_with = get_shared_with_by_document_id_and_user_id(db, document_id=document_id, user_id=user.id)
@@ -343,6 +408,7 @@ async def approve_shared_with(
         return {"message": "SharedWith entry approved successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/document/approve_count/{document_id}")
 async def get_approve_count(document_id: int, db: DBSession = Depends(get_db)):
     try:
@@ -351,9 +417,11 @@ async def get_approve_count(document_id: int, db: DBSession = Depends(get_db)):
             SharedWith.doc_id == document_id,
             SharedWith.approve == True
         ).count()
+
         return {"approve_count": approve_count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 oauth2_scheme = OAuth2AuthorizationCodeBearer(
     authorizationUrl="https://accounts.google.com/o/oauth2/auth",
     tokenUrl="https://oauth2.googleapis.com/token",
@@ -368,6 +436,7 @@ GOOGLE_REDIRECT_URI = config("GOOGLE_REDIRECT_URI")
 @app.get("/login/google/")
 async def login_with_google():
     redirect_uri = f"{GOOGLE_REDIRECT_URI}"
+    print(redirect_uri)
     return RedirectResponse(url=f"https://accounts.google.com/o/oauth2/auth?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={redirect_uri}&scope=openid%20profile%20email")
 
 @app.get("/login/google/callback")
@@ -412,6 +481,8 @@ async def google_callback(
                     profile_image=profile_data.get("picture"),
                 )
                 db.add(user)
+        if user==None:
+            user = emailexists
         # Generate an access token for the user
         access_token_expires = timedelta(
             minutes=int(config("ACCESS_TOKEN_EXPIRE_MINUTES"))
@@ -475,8 +546,10 @@ async def login_with_microsoft_callback(
         profile_data = profile_response.json()
         print(profile_data)
         user = get_user_by_microsoft_id(db, microsoft_id=profile_data["id"])
+    
         emailexists = get_user_by_email(db,email=profile_data.get("email") or profile_data.get("mail") or profile_data.get("userPrincipalName"))
-        print(emailexists)
+    
+            
         if emailexists:
             emailexists.microsoft_id = profile_data["id"]
             emailexists.profile_image = None
@@ -492,6 +565,8 @@ async def login_with_microsoft_callback(
                 )
                 db.add(user)
         # Generate an access token for the user
+        if user==None:
+            user = emailexists
         access_token_expires = timedelta(
             minutes=int(config("ACCESS_TOKEN_EXPIRE_MINUTES"))
         )
@@ -636,33 +711,6 @@ async def edit_comment(
     db.commit()
     return {"message": "Comment updated successfully"}
 
-@app.post("/invite/{team_id}")
-async def invite_team_members(request:Request,team_id:int, user_email: List[str] = Form(...), db: DBSession = Depends(get_db)):
-
-    try:
-        team_id = team_id
-        emails = user_email
-        team_db = get_team_by_id(db, team_id=team_id)
-        token = request.cookies.get("token")
-        user_owner = get_user_by_token(db, token=token)
-        print(user_owner.first_name)
-        for email in emails:
-            if re.match(r"[^@]+@[^@]+\.[^@]+", email):
-                user = get_user_by_email(db, email=email)
-                if user:
-                    add_user_to_team(db, team_id=team_id, user_id=user.id)
-                    # Send invitation email to the user
-                    join_team_mail.send_email(email, team_db.team_token,team_db.team_name,user_owner.first_name)
-                    print(f"Invitation sent to {email}")
-                else:
-                    print(f"User with email '{email}' not found.")
-            else:
-                print(f"Invalid email format: {email}")
-        return {"message": "Invitations sent successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-
 @app.post("/comments/count/{document_id}")
 async def get_comment_count(document_id: int, db: DBSession = Depends(get_db)):
     comment_count = get_comment_count_by_document_id(db, document_id=document_id)
@@ -670,16 +718,7 @@ async def get_comment_count(document_id: int, db: DBSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Document not found")
     else:
         return {"message": f"{comment_count} comments"}
-
-
-@app.get("/file/count/{team_id}")
-async def get_file_count(team_id: int, db: DBSession = Depends(get_db)):
-    file_count = get_file_count_by_team_id(db, team_id=team_id)
-    if not file_count:
-        raise HTTPException(status_code=404, detail="Team not found")
-    else:
-        return {"message": f"{file_count} files"}
-
+    
 @app.put("/document/view/{document_id}")
 async def view_document(request:Request,document_id: int, db: DBSession = Depends(get_db)):
     try:
@@ -687,6 +726,7 @@ async def view_document(request:Request,document_id: int, db: DBSession = Depend
         document = get_document_by_id(db, document_id=document_id)
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
+        
         # Update the view status for the user
         token = request.cookies.get("token")
         user = get_user_by_token(db, token=token)
@@ -696,13 +736,16 @@ async def view_document(request:Request,document_id: int, db: DBSession = Depend
         ).first()
         if not shared_with:
             raise HTTPException(status_code=404, detail="SharedWith entry not found")
+
         shared_with.view = True
         document.view_count += 1
         db.commit()
+
         return {"message": "Document viewed successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+
 @app.get("/document/view_count/{document_id}")
 async def get_view_count(document_id: int, db: DBSession = Depends(get_db)):
     try:
@@ -711,6 +754,17 @@ async def get_view_count(document_id: int, db: DBSession = Depends(get_db)):
             SharedWith.doc_id == document_id,
             SharedWith.view == True
         ).count()
+
         return {"view_count": view_count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/file/count/{team_id}")
+async def get_file_count(team_id: int, db: DBSession = Depends(get_db)):
+    file_count = get_file_count_by_team_id(db, team_id=team_id)
+    if not file_count:
+        raise HTTPException(status_code=404, detail="Team not found")
+    else:
+        return {"message": f"{file_count} files"}
+    
+    
