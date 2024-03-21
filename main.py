@@ -120,12 +120,12 @@ def register_user(
             team_user.is_accept = True
         db.commit()
         
-        response.set_cookie(key="token", value=access_token)
+        response.set_cookie(key="token", value=access_token, httponly=True)
         return {"message": "User created successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/login")
+@app.post("/login")
 def login_user(
     user: schemas.UserLogin,
     request: Request,
@@ -153,7 +153,7 @@ def login_user(
             print(team_user)
             team_user.is_accept = True
         db.commit()
-        response.set_cookie(key="token", value=access_token)
+        response.set_cookie(key="token", value=access_token, httponly=True)
     
         print("-----------coockie token--------", request.cookies.get("token"))
         return {"access_token": access_token, "token_type": "bearer"}
@@ -230,6 +230,14 @@ def create_team_api(
         return {"message": f"Team {team_db.team_name} created successfully "}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/current_user/name")
+def read_current_user(request: Request,db: DBSession = Depends(get_db),):
+    token = request.cookies.get("token")
+    user = get_user_by_token(db, token=token)
+    return {"username": user.first_name + " " + user.last_name}
+
+
 
 @app.post("/upload/{team_id}")
 async def upload_file(
@@ -500,7 +508,7 @@ async def google_callback(
             print(team_user)
             team_user.is_accept = True
         db.commit()
-        response1.set_cookie(key="token", value=access_token)
+        response1.set_cookie(key="token", value=access_token, httponly=True)
         return {"access_token": access_token, "token_type": "bearer"}
     except HTTPError as e:
         raise HTTPException(status_code=400, detail=f"HTTP error occurred: {e}")
@@ -583,7 +591,7 @@ async def login_with_microsoft_callback(
             print(team_user)
             team_user.is_accept = True
         db.commit()
-        response1.set_cookie(key="token", value=access_token)
+        response1.set_cookie(key="token", value=access_token, httponly=True)
         return {"access_token": access_token, "token_type": "bearer"}
     except HTTPError as e:
         raise HTTPException(status_code=400, detail=f"HTTP error occurred: {e}")
@@ -766,5 +774,3 @@ async def get_file_count(team_id: int, db: DBSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Team not found")
     else:
         return {"message": f"{file_count} files"}
-    
-    
