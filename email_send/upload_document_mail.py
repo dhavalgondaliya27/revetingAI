@@ -7,7 +7,9 @@ sender = config("EMAIL_SENDER")
 password = config("EMAIL_PASSWORD")
 
 
-def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName: str):
+def send_email(
+    recipient: str, teamToken: str, documentTeamName: str, firstName: str, name: str
+):
     if recipient.__contains__("string"):
         print("This was a test user.")
         return
@@ -16,7 +18,7 @@ def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName:
     message["From"] = sender
     message["To"] = recipient
     message["Subject"] = (
-        f"""{firstName} has shared a document with you in "{documentTeamName}""" ""
+        f"""{name} has shared a document with you in "{documentTeamName}""" ""
     )
 
     body_content = f"""<!DOCTYPE html>
@@ -148,14 +150,14 @@ def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName:
         <div class="head">
             <img src="./static/RivetingAI.svg" alt="" />
             <h2>
-                <span>{firstName}</span> has shared a secure <br />
+                <span>{name}</span> has shared a secure <br />
                 document with you in “{documentTeamName}”
             </h2>
         </div>
         <div class="emailcontent">
             <p>Hello,</p>
             <p>
-                <span>{firstName}</span> has shared a document with you in “{documentTeamName}.”
+                <span>{name}</span> has shared a document with you in “{documentTeamName}.”
             </p>
             <p>Click the link below to securely access this document:</p>
         </div>
@@ -183,7 +185,7 @@ def send_email(recipient: str, teamToken: str, documentTeamName: str, firstName:
 </html>
 """
 
-    message.attach(MIMEText(body_content, "plain"))
+    message.attach(MIMEText(body_content, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp_server:
         smtp_server.login(sender, password)
