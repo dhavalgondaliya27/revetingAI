@@ -7,5 +7,3 @@ class ApiError(Exception):
         self.message = message
         self.success = False
         
-
-        

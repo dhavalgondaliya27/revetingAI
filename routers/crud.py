@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import uuid
 from decouple import config
-
 from jose import jwt as jose_jwt
 from requests import Session
 from models import Document, SharedWith, Team, TeamUser, User, Comment
@@ -27,32 +26,6 @@ def get_user_by_email(db: Session, email: str):
 def get_user_by_token(db: Session, token: str):
     return db.query(User).filter(User.security_token == token).first()
 
-
-def create_team(db: Session, team_name: str):
-    team_token = str(uuid.uuid4())
-    print(team_token)
-    team = Team(team_name=team_name, team_token=team_token)
-    db.add(team)
-    db.commit()
-    db.refresh(team)
-    return team
-
-
-def add_user_to_team(db: Session, team_id: int, user_id: int):
-    team_user = TeamUser(team_id=team_id, user_id=user_id)
-    db.add(team_user)
-    db.commit()
-    db.refresh(team_user)
-    return team_user
-
-
-def add_owner_to_team(db: Session, team_id: int, user_id: int):
-    team_user = TeamUser(team_id=team_id, user_id=user_id)
-    team_user.is_accept = True
-    db.add(team_user)
-    db.commit()
-    db.refresh(team_user)
-    return team_user
 
 
 def add_document_to_user(db: Session, doc_id: int, user_id: int):
