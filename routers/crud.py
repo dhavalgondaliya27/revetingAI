@@ -27,6 +27,14 @@ def get_user_by_token(db: Session, token: str):
     return db.query(User).filter(User.security_token == token).first()
 
 
+def create_team(db: Session, team_name: str):
+    team_token = str(uuid.uuid4())
+    print(team_token)
+    team = Team(team_name=team_name, team_token=team_token)
+    db.add(team)
+    db.commit()
+    db.refresh(team)
+    return team
 
 
 def add_user_to_team(db: Session, team_id: int, user_id: int):
